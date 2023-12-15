@@ -1,175 +1,174 @@
 import Foundation
 
-let symbols = ["S", "M", "L"]
-let normalizator: Float = 1
+let indexSymbols = ["S", "ML", "MR", "L"]
+let normalUpper: Float = 10
+let normalHalf: Float = 5
 
 
-func format(_ value: Float) -> String {
-    return String(format: "%.2f", value)
-}
-
-func findMinMax(_ data: [Int]) -> MinMax {
-    var result = MinMax(min: data[0], max: data[1])
+func findMinMax(_ data: [[Int]]) -> [MinMax] {
+    var minMax: [MinMax] = []
     
-    for i in 0 ..< data.count {
-        let item = data[i]
-        
-        result.min = min(result.min, item)
-        result.max = max(result.max, item)
+    for item in data[0] {
+        minMax.append(MinMax(min: item, max: item))
     }
     
-    return result
-}
-
-func findMaxIndex(_ data: [Float]) -> MaxIndex {
-    var result = MaxIndex(max: data[0], index: 0)
-    
-    for i in 1 ..< data.count {
-        if data[i] >= result.max {
-            result.max = data[i]
-            result.index = i
-        }
-    }
-    
-    return result
-}
-
-func calculateNormalValues(_ data: [Int]) -> [Float] {
-    let minMax = findMinMax(data)
-    var result: [Float] = []
-    
-    for i in 0 ..< data.count {
-        result.append(Float(data[i] - minMax.min) / Float(minMax.max - minMax.min) * normalizator)
-    }
-    
-    return result
-}
-
-func calculateMembershipValues(_ data: [Float]) -> [[String: Float]] {
-    var result: [[String: Float]] = []
-    
-    for item in data {
-        let small = normalizator - item
-        let medium = 1 - abs(2 * item - normalizator)
-        let large = item
-        
-        result.append([symbols[0]: small, symbols[1]: medium, symbols[2]: large])
-    }
-    
-    return result
-}
-
-func generateCombinations(limit: Int, _ rule: [String] = [], _ result: [[String]] = []) -> [[String]] {
-    if rule.count == limit {
-        return result + [rule]
-    }
-    
-    var newResult = result
-
-    for item in symbols {
-        let subResult = generateCombinations(limit: limit, rule + [item], result)
-        
-        newResult += subResult
-    }
-    
-    return newResult
-}
-
-func calculateExtendedMembership(_ row: [[String: Float]], _ combinations: [[String]]) -> [String: Float] {
-    var result: [String: Float] = [:]
-    
-    for i in 0 ..< combinations.count {
-        var value: Float = 1
-        var rule = String()
-        
-        for j in 0 ..< combinations[i].count {
-            value *= row[j][combinations[i][j]]!
-            rule += combinations[i][j]
-        }
-        
-        result[rule] = value
-    }
-    
-    return result
-}
-
-func calculateExtendedMembershipValues(_ data: [[[String: Float]]], count: Int, _ combinations: [[String]]) -> [[String: Float]] {
-    var result: [[String: Float]] = []
-    
-    for i in 0 ..< count {
-        var row: [[String: Float]] = []
-        
-        for item in data {
-            row.append(item[i])
-        }
-        
-        result.append(calculateExtendedMembership(row, combinations))
-    }
-    
-    return result
-}
-
-func calculateFuzzySeparator(_ combinations: [[String]], _ data: [[String: Float]], _ classes: [Int]) -> [[String]: FuzzySeparator] {
-    var result: [[String]: FuzzySeparator] = [:]
-    var betaDict: [[String]: [Float]] = [:]
-    
-    for combination in combinations {
-        betaDict[combination] = [Float](repeating: 0, count: combination.count)
-    }
-
-    for i in 0 ..< data.count {
-        for combination in combinations {
-            let symbol = combination.joined()
-            let value = data[i][symbol]!
-            let cls = classes[i]
-            var betaArr = betaDict[combination]!
+    for row in data {
+        for i in 0 ..< row.count {
+            let item = row[i]
             
-            betaArr[cls - 1] += value
-            betaDict[combination] = betaArr
+            minMax[i].min = min(minMax[i].min, item)
+            minMax[i].max = max(minMax[i].max, item)
         }
     }
     
-    for combination in combinations {
-        let betaArr = betaDict[combination]!
-        let cls = findMaxIndex(betaArr).index + 1
-        var numerator = betaArr[0]
-        var denominator = betaArr[0]
-        
-        for i in 1 ..< betaArr.count {
-            numerator -= betaArr[i]
-            denominator += betaArr[i]
-        }
+    return minMax
+}
 
-        result[combination] = FuzzySeparator(cp: abs(numerator) / denominator, cls: cls)
+func initializeValues(_ data: [[Int]]) -> [[Value]] {
+    var values: [[Value]] = Array(repeating: [], count: data[0].count)
+    
+    for row in data {
+        for i in 0 ..< row.count {
+            values[i].append(Value(value: row[i], normalValue: 0, small: 0, mediumLeft: 0, mediumRight: 0, large: 0))
+        }
     }
- 
+    
+    return values
+}
+
+func calculateNormalValues(_ data: [Value], minMax: MinMax) -> [Value] {
+    var result = data
+    
+    for i in 0 ..< result.count {
+        result[i].normalValue = Float(result[i].value - minMax.min) / Float(minMax.max - minMax.min)
+        result[i].normalValue *= normalUpper
+    }
+    
     return result
 }
 
-func calculateMu(_ symbol: String, _ value: Float) -> Float {
-    switch symbol {
-    case symbols[0]: // S
-        return normalizator - value
-    case symbols[1]: // M
-        return normalizator - abs(2 * value - normalizator)
-    case symbols[2]: // L
-        return value
-    default:
-        return 0
+func calculateFuncValues(_ data: [Value]) -> [Value] {
+    var result = data
+    
+    for i in 0 ..< result.count {
+        let normalValue = result[i].normalValue
+        let small = (normalHalf - normalValue) / normalHalf
+        let mediumLeft = normalValue / normalHalf
+        let mediumRight = (normalUpper - normalValue) / normalHalf
+        let large = (normalValue - normalHalf) / normalHalf
+        
+        result[i].small = (small < 0.0 || small > 1.0) ? 0.0 : small
+        result[i].mediumLeft = (mediumLeft < 0.0 || mediumLeft > 1.0) ? 0.0 : mediumLeft
+        result[i].mediumRight = (mediumRight < 0.0 || mediumRight > 1.0) ? 0.0 : mediumRight
+        result[i].large = (large < 0.0 || large > 1.0) ? 0.0 : large
     }
+    
+    return result
 }
 
-func doClassification(_ input: [Float], _ fuzzySeparator: [[String]: FuzzySeparator]) -> MaxIndex {
-    var muMax = [Float](repeating: 0, count: input.count)
+func findMaxSymbol(in value: Value) -> MaxSymbol {
+    var result = MaxSymbol(max: value.small, symbol: indexSymbols[0])
     
-    for separator in fuzzySeparator {
-        var mu = [Float](repeating: 0, count: input.count)
+    if value.mediumLeft >= result.max {
+        result.max = value.mediumLeft
+        result.symbol = indexSymbols[1]
+    }
+    
+    if value.mediumRight >= result.max {
+        result.max = value.mediumRight
+        result.symbol = indexSymbols[2]
+    }
+    
+    if value.large >= result.max {
+        result.max = value.large
+        result.symbol = indexSymbols[3]
+    }
+    
+    return result
+}
+
+func createFinalRule(values: [Value]) -> Rule {
+    var rule = Rule(xSymbols: [], ySymbol: String(), sp: 1.0)
+    
+    for i in 0 ..< values.count {
+        let value = values[i]
+        let maxSymbol = findMaxSymbol(in: value)
         
-        for i in 0 ..< input.count {
-            mu[i] = calculateMu(separator.key[i], input[i])
-            muMax[i] = max(muMax[i], mu[i])
+        if i < values.count - 1 {
+            rule.xSymbols.append(maxSymbol.symbol)
+        } else {
+            rule.ySymbol = maxSymbol.symbol
+        }
+        
+        rule.sp *= maxSymbol.max
+    }
+
+    return rule
+}
+
+func check(_ rule: Rule, for values: [Value]) -> Defuz {
+    let valuesCount = values.count
+    var result = Defuz(xSymbols: [], mu: [], tau: 1)
+    
+    for i in 0 ..< valuesCount {
+        let xSymbol = rule.xSymbols[i]
+        let value = values[i]
+        
+        switch xSymbol {
+        case indexSymbols[0]: // S
+            let small = value.small
+            
+            result.xSymbols += small > 0 ? [xSymbol] : []
+            result.mu += small > 0 ? [small] : []
+            result.tau *= small > 0 ? small : 1
+        case indexSymbols[1]: // ML
+            let mediumLeft = value.mediumLeft
+            
+            result.xSymbols += mediumLeft > 0 ? [xSymbol] : []
+            result.mu += mediumLeft > 0 ? [mediumLeft] : []
+            result.tau *= mediumLeft > 0 ? mediumLeft : 1
+        case indexSymbols[2]: // MR
+            let mediumRight = value.mediumRight
+            
+            result.xSymbols += mediumRight > 0 ? [xSymbol] : []
+            result.mu += mediumRight > 0 ? [mediumRight] : []
+            result.tau *= mediumRight > 0 ? mediumRight : 1
+        case indexSymbols[3]: // L
+            let large = value.large
+            
+            result.xSymbols += large > 0 ? [xSymbol] : []
+            result.mu += large > 0 ? [large] : []
+            result.tau *= large > 0 ? large : 1
+        default:
+            result.xSymbols = []
+            result.mu = []
+            result.tau = 0
         }
     }
     
-    return findMaxIndex(muMax)
+    return result
+}
+
+func solveEquation(values: [Float], ySymbol: String) -> Float {
+    var minVal = Float.infinity
+    var result: Float = 0
+    
+    for value in values {
+        minVal = min(minVal, value)
+    }
+    
+    switch ySymbol {
+    case indexSymbols[0]: // S
+        result = normalHalf - normalHalf * minVal
+    case indexSymbols[1]: // ML
+        result = normalHalf * minVal
+    case indexSymbols[2]: // MR
+        result = normalUpper - normalHalf * minVal
+    case indexSymbols[3]: // L
+        result = normalHalf * minVal + normalHalf
+    default:
+        result = -1
+    }
+    
+    return result
 }
